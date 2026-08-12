@@ -1,0 +1,54 @@
+/*
+ * openxirp design tokens.
+ * Editorial light theme: warm paper, near-black ink, a single crimson accent.
+ * Serif for display, sans for interface, mono for data and terminals.
+ */
+:root {
+  /* surfaces */
+  --paper: #fbfaf8;
+  --paper-deep: #f2efe9;
+  --surface: #ffffff;
+  --surface-sunken: #f6f4f0;
+  --surface-hover: #f0ede7;
+
+  /* ink */
+  --ink: #17150f;
+  --ink-2: #55524a;
+  --ink-3: #8b877d;
+  --ink-4: #b4afa4;
+
+  /* lines */
+  --hairline: #e7e3da;
+  --hairline-strong: #d7d2c7;
+
+  /* accent (crimson) */
+  --accent: #e0323f;
+  --accent-press: #c31f2c;
+  --accent-wash: #fbe9ea;
+  --accent-ink: #a01a25;
+
+  /* status */
+  --ok: #1f8a54;
+  --warn: #b7791f;
+  --idle: #a9a49a;
+
+  /* type */
+  --serif: 'Iowan Old Style', 'Palatino Linotype', 'Palatino', 'Georgia', serif;
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', ui-monospace, Menlo, Consolas, monospace;
+
+  /* geometry */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow-card: 0 1px 2px rgba(23, 21, 15, 0.04), 0 8px 24px rgba(23, 21, 15, 0.05);
+  --shadow-pop: 0 12px 40px rgba(23, 21, 15, 0.14);
+
+  /* spacing scale */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+}
