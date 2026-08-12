@@ -13,8 +13,11 @@ git worktree — so nothing shares a checkout and agents never step on each othe
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)]()
 [![Electron](https://img.shields.io/badge/electron-33-blueviolet)](https://www.electronjs.org/)
 
-<!-- Add a screenshot or demo GIF here -->
-<!-- ![Screenshot](docs/screenshot.png) -->
+<a href="docs/openxirp-promo.mp4">
+  <img src="docs/openxirp-promo.gif" alt="openxirp — one surface, many agents. A 35-second product tour." width="100%">
+</a>
+
+<sub><a href="docs/openxirp-promo.mp4">▶ Watch the full-quality video (MP4)</a></sub>
 
 </div>
 

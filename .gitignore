@@ -5,3 +5,12 @@ release
 *.log
 .DS_Store
 .vite
+
+# Claude Code agents and skills (local tooling, not project source)
+.claude/agents/
+.claude/skills/
+
+.agents/skills/
+
+# promo video project (HyperFrames source); the published video lives in docs/
+videos/
