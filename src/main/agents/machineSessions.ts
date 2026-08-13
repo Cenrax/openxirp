@@ -1,9 +1,16 @@
 import { readdir, stat } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, join } from 'path'
-import type { AgentSessionRef, MachineProjectGroup } from '@shared/types'
+import type { AgentSessionRef, MachinePulse, MachineProjectGroup } from '@shared/types'
 import { forEachJsonlHead, isHumanPrompt } from './transcriptUtils'
 import { detectRunningAgents } from './liveAgents'
+
+/** A transcript touched within this window means the agent is actively working. */
+const WORKING_FRESH_MS = 12_000
+
+function encodeClaudeDir(projectPath: string): string {
+  return projectPath.replace(/[^a-zA-Z0-9]/g, '-')
+}
 
 /**
  * Machine-wide session discovery: every coding-agent session found anywhere on
@@ -222,7 +229,7 @@ export async function discoverAllSessions(
   for (const ref of onDisk) {
     const g = groupFor(ref.cwd)
     const fresh = now - ref.lastActive < ACTIVE_WINDOW_MS
-    g.sessions.push({ ...ref, running: fresh, pid: null })
+    g.sessions.push({ ...ref, running: fresh, pid: null, state: 'idle' })
     if (ref.lastActive > g.lastActive) g.lastActive = ref.lastActive
   }
 
@@ -251,12 +258,17 @@ export async function discoverAllSessions(
       sizeBytes: 0,
       resumable: false,
       running: true,
-      pid: r.pid
+      pid: r.pid,
+      state: 'working'
     })
     gg.lastActive = Math.max(gg.lastActive, now)
   }
 
   for (const g of byPath.values()) {
+    for (const s of g.sessions) {
+      const fresh = now - s.lastActive < WORKING_FRESH_MS
+      s.state = fresh ? 'working' : s.pid !== null ? 'waiting' : 'idle'
+    }
     g.sessions.sort((a, b) => b.lastActive - a.lastActive)
     g.runningCount = g.sessions.filter((s) => s.running).length
   }
@@ -265,4 +277,50 @@ export async function discoverAllSessions(
     if (a.runningCount !== b.runningCount) return b.runningCount - a.runningCount
     return b.lastActive - a.lastActive
   })
+}
+
+/** Newest transcript mtime for an agent + cwd, as "ms ago"; Infinity if none. */
+async function freshestTranscriptMs(agentId: string, cwd: string): Promise<number> {
+  const now = Date.now()
+  try {
+    if (agentId === 'claude-code') {
+      const dir = join(homedir(), '.claude', 'projects', encodeClaudeDir(cwd))
+      const files = (await readdir(dir)).filter((f) => f.endsWith('.jsonl'))
+      let newest = 0
+      await Promise.all(
+        files.map(async (f) => {
+          const s = await stat(join(dir, f)).catch(() => null)
+          if (s && s.mtimeMs > newest) newest = s.mtimeMs
+        })
+      )
+      return newest ? now - newest : Infinity
+    }
+  } catch {
+    /* fall through */
+  }
+  // Other agents: we can confirm the process is alive but not cheaply date its
+  // transcript, so report "not fresh" and let the caller show it as waiting.
+  return Infinity
+}
+
+/**
+ * A cheap activity snapshot for the command center's live view: which cwds have
+ * a running agent right now, and how recently each wrote its transcript. Runs a
+ * process scan plus a single readdir per active project, so it is safe to poll.
+ */
+export async function machinePulse(): Promise<MachinePulse> {
+  const running = await detectRunningAgents().catch(() => [])
+  const out: MachinePulse = {}
+  await Promise.all(
+    running.map(async (r) => {
+      if (!r.cwd) return
+      const freshMs = await freshestTranscriptMs(r.agentId, r.cwd)
+      // keep the freshest process per cwd
+      const prev = out[r.cwd]
+      if (!prev || freshMs < prev.freshMs) {
+        out[r.cwd] = { alive: true, freshMs, agentId: r.agentId }
+      }
+    })
+  )
+  return out
 }

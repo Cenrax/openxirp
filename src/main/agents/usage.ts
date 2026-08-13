@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import type { SessionUsage, UsageReport } from '@shared/types'
 import { forEachJsonl } from './transcriptUtils'
+import { findClaudeTranscriptFile } from './claudeSessions'
 
 /**
  * Token accounting and rough cost estimation, read from the same on-disk
@@ -66,10 +67,6 @@ function num(v: unknown): number {
 
 /* ---------- Claude Code ---------- */
 
-function encodeProjectDir(projectPath: string): string {
-  return projectPath.replace(/[^a-zA-Z0-9]/g, '-')
-}
-
 async function sumClaudeFile(file: string): Promise<SessionUsage> {
   const u = empty()
   await forEachJsonl(file, (d) => {
@@ -127,8 +124,8 @@ export async function readSessionUsage(
 ): Promise<SessionUsage | null> {
   try {
     if (agentId === 'claude-code') {
-      const file = join(homedir(), '.claude', 'projects', encodeProjectDir(cwd), `${sessionId}.jsonl`)
-      return await sumClaudeFile(file)
+      const file = await findClaudeTranscriptFile(cwd, sessionId)
+      return file ? await sumClaudeFile(file) : null
     }
   } catch {
     /* fall through */

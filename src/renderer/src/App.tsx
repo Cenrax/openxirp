@@ -117,6 +117,11 @@ export default function App(): JSX.Element {
     return window.api.onSessionFocus((id) => useApp.getState().openSession(id))
   }, [])
 
+  useEffect(() => {
+    // live working/blocked/idle state pushed from the main process
+    return window.api.onSessionStates((states) => useApp.getState().setStates(states))
+  }, [])
+
   return (
     <div className="app">
       <TopBar />

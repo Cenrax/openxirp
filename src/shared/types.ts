@@ -1,5 +1,8 @@
 export type SessionStatus = 'idle' | 'running' | 'exited'
 
+/** Live runtime state of a session's terminal, inferred from its output. */
+export type SessionState = 'idle' | 'working' | 'blocked' | 'exited'
+
 export interface Project {
   id: string
   name: string
@@ -46,12 +49,29 @@ export interface RunningAgentRef {
   cwd: string | null
 }
 
+/** Live activity of a machine-wide session we do not own the terminal for. */
+export type MachineSessionState = 'working' | 'waiting' | 'idle'
+
 /** A discovered session (on-disk transcript and/or a live process) in the machine-wide view. */
 export interface MachineSession extends AgentSessionRef {
   /** true when a matching agent process is running in this cwd right now */
   running: boolean
   /** pid of the live process, when running */
   pid: number | null
+  /**
+   * working = its transcript is being written right now; waiting = the agent
+   * process is alive but quiet (ready for you); idle = no live process.
+   */
+  state: MachineSessionState
+}
+
+/**
+ * A cheap, frequently-polled activity snapshot for live agent processes, keyed
+ * by working directory. Lets the command center update working/waiting state
+ * without re-scanning every transcript on disk.
+ */
+export interface MachinePulse {
+  [cwd: string]: { alive: boolean; freshMs: number; agentId: string }
 }
 
 /** All sessions found for one project folder anywhere on the machine. */

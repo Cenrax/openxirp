@@ -1,14 +1,32 @@
 import { useApp } from '../store'
-import type { Session } from '@shared/types'
+import type { Session, SessionState } from '@shared/types'
 
-function StatusDot({ status }: { status: Session['status'] }): JSX.Element {
-  return <span className={`dot ${status}`} title={status} />
+const STATE_LABEL: Record<string, string> = {
+  working: 'Working',
+  blocked: 'Waiting for you',
+  idle: 'Idle',
+  running: 'Running',
+  exited: 'Exited'
+}
+
+/** Prefer the live runtime state; fall back to the persisted status. */
+export function effectiveState(
+  status: Session['status'],
+  live: SessionState | undefined
+): string {
+  if (status === 'exited') return 'exited'
+  return live ?? status
+}
+
+function StatusDot({ state }: { state: string }): JSX.Element {
+  return <span className={`dot ${state}`} title={STATE_LABEL[state] ?? state} />
 }
 
 export function Sidebar(): JSX.Element {
   const {
     projects,
     sessions,
+    states,
     activeId,
     historyProjectId,
     view,
@@ -28,7 +46,7 @@ export function Sidebar(): JSX.Element {
       className={`session ${activeId === s.id ? 'is-active' : ''}`}
       onClick={() => openSession(s.id)}
     >
-      <StatusDot status={s.status} />
+      <StatusDot state={effectiveState(s.status, states[s.id])} />
       <span className="session__name">{s.name}</span>
       <button
         className="session__close"

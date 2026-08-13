@@ -5,7 +5,7 @@ import { discoverClaudeSessions, readClaudeTranscript } from './claudeSessions'
 import { discoverCodexSessions, readCodexTranscript } from './codexSessions'
 import { discoverGeminiSessions, readGeminiTranscript } from './geminiSessions'
 
-export { discoverAllSessions } from './machineSessions'
+export { discoverAllSessions, machinePulse } from './machineSessions'
 
 const NO_SESSIONS = async (): Promise<AgentSessionRef[]> => []
 const NO_TRANSCRIPT = async (): Promise<TranscriptMessage[]> => []

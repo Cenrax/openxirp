@@ -14,6 +14,7 @@ export const IPC = {
   agentsList: 'agents:list',
   agentsDiscover: 'agents:discover',
   agentsDiscoverAll: 'agents:discoverall',
+  agentsPulse: 'agents:pulse',
   agentsTranscript: 'agents:transcript',
   agentsTranscriptAt: 'agents:transcriptat',
 
@@ -39,5 +40,6 @@ export const IPC = {
   ptyData: 'pty:data',
   ptyExit: 'pty:exit',
 
-  sessionFocus: 'session:focus'
+  sessionFocus: 'session:focus',
+  sessionStates: 'session:states'
 } as const

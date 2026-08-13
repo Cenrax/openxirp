@@ -1,7 +1,21 @@
+import { useEffect } from 'react'
 import { useApp } from '../store'
 import { Markdown, stripMarkdown } from './Markdown'
 import { SessionUsageChip, UsageSummary } from './Usage'
-import type { MachineProjectGroup, MachineSession, TranscriptMessage } from '@shared/types'
+import type {
+  MachineProjectGroup,
+  MachineSession,
+  MachineSessionState,
+  TranscriptMessage
+} from '@shared/types'
+
+const WORKING_FRESH_MS = 12_000
+
+const STATE_LABEL: Record<MachineSessionState, string> = {
+  working: 'Working',
+  waiting: 'Waiting for you',
+  idle: 'Idle'
+}
 
 function relativeTime(ms: number): string {
   const diff = Date.now() - ms
@@ -27,14 +41,23 @@ function SessionRow({
   group: MachineProjectGroup
 }): JSX.Element {
   const agents = useApp((st) => st.agents)
+  const pulse = useApp((st) => st.machinePulse)
   const openMachineTranscript = useApp((st) => st.openMachineTranscript)
   const resumeMachineSession = useApp((st) => st.resumeMachineSession)
+  // Only the live process for this cwd adopts the fresh pulse; others keep their
+  // discovered state (idle for old transcripts).
+  const live = s.pid !== null ? pulse[group.path] : undefined
+  const state: MachineSessionState = live
+    ? live.freshMs < WORKING_FRESH_MS
+      ? 'working'
+      : 'waiting'
+    : s.state
   return (
     <button
       className={`cc-row${s.resumable ? '' : ' cc-row--live'}`}
       onClick={() => void openMachineTranscript(s)}
     >
-      <span className={`cc-row__pulse${s.running ? ' is-on' : ''}`} aria-hidden />
+      <span className={`cc-row__pulse dot ${state}`} title={STATE_LABEL[state]} aria-hidden />
       <div className="cc-row__body">
         <div className="cc-row__title">{stripMarkdown(s.title)}</div>
         <div className="cc-row__meta">
@@ -67,7 +90,17 @@ function SessionRow({
 function Group({ group }: { group: MachineProjectGroup }): JSX.Element {
   const addGroupProject = useApp((st) => st.addGroupProject)
   const costs = useApp((st) => st.costs)
+  const pulse = useApp((st) => st.machinePulse)
   const usage = costs?.byPath[group.path]
+  const live = pulse[group.path]
+  // Live badge: pulse wins; otherwise fall back to the last discovery snapshot.
+  const gstate: MachineSessionState | null = live
+    ? live.freshMs < WORKING_FRESH_MS
+      ? 'working'
+      : 'waiting'
+    : group.runningCount > 0
+      ? 'working'
+      : null
   return (
     <section className="cc-group">
       <header className="cc-group__head">
@@ -75,8 +108,10 @@ function Group({ group }: { group: MachineProjectGroup }): JSX.Element {
           <div className="cc-group__name">
             {group.name}
             {group.addedProjectId && <span className="cc-tag cc-tag--added">Added</span>}
-            {group.runningCount > 0 && (
-              <span className="cc-tag cc-tag--live">{group.runningCount} running</span>
+            {gstate && (
+              <span className={`cc-tag cc-tag--${gstate}`}>
+                <span className={`dot ${gstate}`} aria-hidden /> {STATE_LABEL[gstate]}
+              </span>
             )}
           </div>
           <div className="cc-group__path">{group.path}</div>
@@ -165,6 +200,21 @@ export function CommandCenter(): JSX.Element {
   const costs = useApp((s) => s.costs)
   const costsLoading = useApp((s) => s.costsLoading)
   const loadCosts = useApp((s) => s.loadCosts)
+
+  useEffect(() => {
+    // Live activity every 3s (cheap), a full re-scan every 20s to catch new
+    // sessions and folders; both pause while previewing a transcript.
+    const pulse = setInterval(() => {
+      if (!useApp.getState().detail) void useApp.getState().refreshPulse()
+    }, 3000)
+    const full = setInterval(() => {
+      if (!useApp.getState().detail) void useApp.getState().refreshMachine()
+    }, 20000)
+    return () => {
+      clearInterval(pulse)
+      clearInterval(full)
+    }
+  }, [])
 
   if (detail) return <TranscriptView />
 

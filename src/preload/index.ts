@@ -8,6 +8,7 @@ import type {
   FileNode,
   GitStatus,
   MachineProjectGroup,
+  MachinePulse,
   MergeResult,
   PrResult,
   Project,
@@ -15,6 +16,7 @@ import type {
   PtyExitEvent,
   PtyStartResult,
   Session,
+  SessionState,
   SessionUsage,
   TranscriptMessage,
   UsageReport,
@@ -31,6 +33,7 @@ const api = {
     ipcRenderer.invoke(IPC.agentsDiscover, projectId),
   discoverAllSessions: (): Promise<MachineProjectGroup[]> =>
     ipcRenderer.invoke(IPC.agentsDiscoverAll),
+  machinePulse: (): Promise<MachinePulse> => ipcRenderer.invoke(IPC.agentsPulse),
   readTranscript: (
     agentId: string,
     projectId: string,
@@ -100,6 +103,11 @@ const api = {
     const handler = (_: unknown, id: string): void => cb(id)
     ipcRenderer.on(IPC.sessionFocus, handler)
     return () => ipcRenderer.removeListener(IPC.sessionFocus, handler)
+  },
+  onSessionStates: (cb: (states: Record<string, SessionState>) => void): (() => void) => {
+    const handler = (_: unknown, states: Record<string, SessionState>): void => cb(states)
+    ipcRenderer.on(IPC.sessionStates, handler)
+    return () => ipcRenderer.removeListener(IPC.sessionStates, handler)
   }
 }
 

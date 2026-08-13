@@ -1,6 +1,7 @@
 import { useApp } from '../store'
 import { TerminalView } from './TerminalView'
 import { GitPanel } from './GitPanel'
+import { effectiveState } from './Sidebar'
 import type { Session } from '@shared/types'
 
 function agentLabel(agentId: string, agents: { id: string; label: string }[]): string {
@@ -25,7 +26,7 @@ function Pane({ session, visible }: { session: Session; visible: boolean }): JSX
 }
 
 export function Workspace(): JSX.Element {
-  const { sessions, openIds, activeId, layout, panelOpen, closeTab, setActive } = useApp()
+  const { sessions, states, openIds, activeId, layout, panelOpen, closeTab, setActive } = useApp()
   const open = openIds.map((id) => sessions.find((s) => s.id === id)).filter(Boolean) as Session[]
   const active = open.find((s) => s.id === activeId) ?? null
 
@@ -45,7 +46,7 @@ export function Workspace(): JSX.Element {
               className={`tab ${activeId === s.id ? 'is-active' : ''}`}
               onClick={() => setActive(s.id)}
             >
-              <span className={`dot ${s.status}`} />
+              <span className={`dot ${effectiveState(s.status, states[s.id])}`} />
               <span>{s.name}</span>
               <span
                 className="session__close"

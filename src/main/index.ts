@@ -6,12 +6,14 @@ import { IPC } from '@shared/ipc'
 import type { CreateSessionInput, Project, Session } from '@shared/types'
 import { Store } from './store/Store'
 import { PtyManager, type PtyNotifyEvent } from './pty/PtyManager'
+import type { SessionState } from '@shared/types'
 import { GitService } from './git/GitService'
 import {
   discoverAllSessions,
   discoverSessions,
   getAdapter,
   listAgents,
+  machinePulse,
   readTranscript
 } from './agents/registry'
 import { readAllUsage, readSessionUsage } from './agents/usage'
@@ -36,8 +38,18 @@ function notifyAttention(e: PtyNotifyEvent): void {
     bellDebounce.set(e.id, now)
   }
 
-  const title = e.kind === 'exit' ? 'Session ended' : 'Session needs attention'
-  const body = e.kind === 'exit' ? `${session.name} exited (code ${e.code})` : session.name
+  const title =
+    e.kind === 'exit'
+      ? 'Session ended'
+      : e.kind === 'blocked'
+        ? 'Waiting for you'
+        : 'Session needs attention'
+  const body =
+    e.kind === 'exit'
+      ? `${session.name} exited (code ${e.code})`
+      : e.kind === 'blocked'
+        ? `${session.name} is blocked on a prompt`
+        : session.name
   const n = new Notification({ title, body })
   n.on('click', () => {
     if (mainWindow) {
@@ -50,6 +62,26 @@ function notifyAttention(e: PtyNotifyEvent): void {
 }
 
 const pty = new PtyManager(() => mainWindow?.webContents ?? null, notifyAttention)
+
+// Poll live session states, push them to the renderer for status dots, and
+// notify once when an agent session transitions into a blocked (needs-input) state.
+const prevStates = new Map<string, SessionState>()
+function tickStates(): void {
+  const states = pty.snapshotStates()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC.sessionStates, states)
+  }
+  for (const [id, state] of Object.entries(states)) {
+    const prev = prevStates.get(id)
+    if (state === 'blocked' && prev && prev !== 'blocked') {
+      const session = store.findSession(id)
+      if (session && session.agentId !== 'plain') notifyAttention({ kind: 'blocked', id })
+    }
+    prevStates.set(id, state)
+  }
+  // drop states for sessions that no longer exist
+  for (const id of [...prevStates.keys()]) if (!(id in states)) prevStates.delete(id)
+}
 
 function slugify(input: string): string {
   const base = input
@@ -118,6 +150,8 @@ function registerIpc(): void {
     const known = store.projects.map((p) => ({ id: p.id, path: p.path, isGit: p.isGit }))
     return discoverAllSessions(known)
   })
+
+  ipcMain.handle(IPC.agentsPulse, () => machinePulse())
 
   // Read a transcript for a machine-wide session, keyed by its real cwd rather
   // than a stored project. For Claude the cwd reproduces the transcript dir; for
@@ -349,6 +383,8 @@ app.whenReady().then(() => {
 
   registerIpc()
   createWindow()
+
+  setInterval(tickStates, 1200)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

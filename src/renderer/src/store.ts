@@ -4,9 +4,11 @@ import type {
   AgentSessionRef,
   CreateSessionInput,
   MachineProjectGroup,
+  MachinePulse,
   MachineSession,
   Project,
   Session,
+  SessionState,
   TranscriptMessage,
   UsageReport
 } from '@shared/types'
@@ -36,6 +38,7 @@ interface AppState {
   projects: Project[]
   sessions: Session[]
   agents: AgentInfo[]
+  states: Record<string, SessionState>
   openIds: string[]
   activeId: string | null
   layout: Layout
@@ -54,10 +57,12 @@ interface AppState {
 
   machineGroups: MachineProjectGroup[]
   machineLoading: boolean
+  machinePulse: MachinePulse
   costs: UsageReport | null
   costsLoading: boolean
 
   init: () => Promise<void>
+  setStates: (states: Record<string, SessionState>) => void
   applySnapshot: (snap: { projects: Project[]; sessions: Session[] }) => void
   addProject: () => Promise<void>
   removeProject: (id: string) => Promise<void>
@@ -81,6 +86,7 @@ interface AppState {
 
   openCommandCenter: () => Promise<void>
   refreshMachine: () => Promise<void>
+  refreshPulse: () => Promise<void>
   closeCommandCenter: () => void
   openMachineTranscript: (ref: MachineSession) => Promise<void>
   resumeMachineSession: (ref: MachineSession, group: MachineProjectGroup) => Promise<void>
@@ -92,6 +98,7 @@ export const useApp = create<AppState>((set, get) => ({
   projects: [],
   sessions: [],
   agents: [],
+  states: {},
   openIds: [],
   activeId: null,
   layout: 'tabs',
@@ -110,6 +117,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   machineGroups: [],
   machineLoading: false,
+  machinePulse: {},
   costs: null,
   costsLoading: false,
 
@@ -121,6 +129,8 @@ export const useApp = create<AppState>((set, get) => ({
     ])
     set({ projects, sessions, agents })
   },
+
+  setStates: (states) => set({ states }),
 
   applySnapshot: (snap) => {
     // prune open tabs whose sessions no longer exist
@@ -239,6 +249,7 @@ export const useApp = create<AppState>((set, get) => ({
   openCommandCenter: async () => {
     set({ view: 'machine', detail: null, transcript: [] })
     await get().refreshMachine()
+    void get().refreshPulse()
   },
 
   refreshMachine: async () => {
@@ -248,6 +259,14 @@ export const useApp = create<AppState>((set, get) => ({
       set({ machineGroups, machineLoading: false })
     } catch {
       set({ machineGroups: [], machineLoading: false })
+    }
+  },
+
+  refreshPulse: async () => {
+    try {
+      set({ machinePulse: await window.api.machinePulse() })
+    } catch {
+      /* keep the last pulse */
     }
   },
 

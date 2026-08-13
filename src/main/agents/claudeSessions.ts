@@ -98,11 +98,50 @@ export async function discoverClaudeSessions(projectPath: string): Promise<Agent
     .sort((a, b) => b.lastActive - a.lastActive)
 }
 
+/**
+ * Locate a Claude transcript file. The fast path reconstructs the directory
+ * from the cwd, but a session run in a subdirectory is stored under a different
+ * project dir than its recorded cwd encodes, so fall back to searching every
+ * project directory for the `<sessionId>.jsonl` file.
+ */
+export async function findClaudeTranscriptFile(
+  cwd: string,
+  sessionId: string
+): Promise<string | null> {
+  const primary = join(projectDir(cwd), `${sessionId}.jsonl`)
+  try {
+    await stat(primary)
+    return primary
+  } catch {
+    /* fall back to a search */
+  }
+  const root = join(homedir(), '.claude', 'projects')
+  let dirs: string[]
+  try {
+    dirs = await readdir(root)
+  } catch {
+    return null
+  }
+  const hits = await Promise.all(
+    dirs.map(async (d) => {
+      const p = join(root, d, `${sessionId}.jsonl`)
+      try {
+        await stat(p)
+        return p
+      } catch {
+        return null
+      }
+    })
+  )
+  return hits.find((p): p is string => p !== null) ?? null
+}
+
 export async function readClaudeTranscript(
   projectPath: string,
   sessionId: string
 ): Promise<TranscriptMessage[]> {
-  const file = join(projectDir(projectPath), `${sessionId}.jsonl`)
+  const file = await findClaudeTranscriptFile(projectPath, sessionId)
+  if (!file) return []
   const out: TranscriptMessage[] = []
   await forEachJsonl(file, (d) => {
     const ts = typeof d.timestamp === 'string' ? Date.parse(d.timestamp) || null : null

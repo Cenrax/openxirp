@@ -224,6 +224,34 @@ button {
 .dot.exited {
   background: var(--ink-4);
 }
+/* live runtime states */
+.dot.idle {
+  background: var(--idle);
+}
+.dot.working {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(31, 138, 84, 0.16);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+.dot.blocked {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+  animation: dot-pulse 1s ease-in-out infinite;
+}
+.dot.waiting {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+  animation: dot-pulse 1.6s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
 
 /* ---------- buttons ---------- */
 .btn {
@@ -941,6 +969,9 @@ button {
   color: var(--ink-3);
 }
 .cc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-family: var(--mono);
   font-size: 9px;
   text-transform: uppercase;
@@ -948,12 +979,20 @@ button {
   border-radius: 3px;
   padding: 1px 6px;
 }
+.cc-tag .dot {
+  width: 6px;
+  height: 6px;
+}
 .cc-tag--added {
   color: var(--ink-2);
   background: var(--surface-sunken);
   border: 1px solid var(--hairline);
 }
-.cc-tag--live {
+.cc-tag--working {
+  color: var(--ok);
+  background: rgba(31, 138, 84, 0.1);
+}
+.cc-tag--waiting {
   color: var(--accent-ink);
   background: var(--accent-wash);
 }
@@ -986,16 +1025,6 @@ button {
 }
 .cc-row__pulse {
   flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ink-4);
-  opacity: 0.4;
-}
-.cc-row__pulse.is-on {
-  background: var(--accent);
-  opacity: 1;
-  box-shadow: 0 0 0 3px var(--accent-wash);
 }
 .cc-row__body {
   flex: 1;

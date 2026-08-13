@@ -72,10 +72,18 @@ Each agent stays authenticated and configured through its own native CLI.
   grouped by project folder, whether or not the folder is added to openxirp. It
   merges on-disk transcripts (Claude Code, Codex, Gemini) with a live scan of
   running agent processes, marks which sessions are active right now, and lets
-  you resume any of them or add its folder as a project in one click.
+  you resume any of them or add its folder as a project in one click. It updates
+  live: each project shows whether its agent is working (writing right now) or
+  waiting for you, even for sessions openxirp did not launch and folders you
+  never added.
 - **Command palette** — Cmd/Ctrl + K to jump to any project, session, or action.
+- **Live session state** — every session shows whether its agent is working,
+  blocked waiting for your input, or idle, inferred from the terminal output.
+  The status dot pulses in the sidebar and tabs, so you can tell at a glance
+  which agent needs you.
 - **Desktop notifications** — get pinged when a session rings the terminal bell
-  for attention or its process exits, while the window is in the background.
+  for attention, becomes blocked on a prompt, or its process exits, while the
+  window is in the background.
 - **Cross-platform** — builds for macOS (`.dmg`, arm64 + x64) and Windows
   (NSIS installer) via GitHub Actions.
 
@@ -166,6 +174,7 @@ Electron main (Node)                    Renderer (React + Vite)
 - [x] Machine-wide command center for every agent session
 - [x] Merge / open a PR / discard a session's worktree
 - [x] Token / cost estimation per session and per project
+- [x] Live working / blocked / idle state per session
 - [ ] Run one task across several agents in parallel worktrees
 - [ ] Rules and skills manager for agents
 - [ ] External context integrations
