@@ -1,18 +1,55 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, Notification } from 'electron'
 import { join, basename } from 'path'
 import { randomUUID } from 'crypto'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC } from '@shared/ipc'
 import type { CreateSessionInput, Project, Session } from '@shared/types'
 import { Store } from './store/Store'
-import { PtyManager } from './pty/PtyManager'
+import { PtyManager, type PtyNotifyEvent } from './pty/PtyManager'
 import { GitService } from './git/GitService'
-import { discoverSessions, getAdapter, listAgents, readTranscript } from './agents/registry'
+import {
+  discoverAllSessions,
+  discoverSessions,
+  getAdapter,
+  listAgents,
+  readTranscript
+} from './agents/registry'
+import { readAllUsage, readSessionUsage } from './agents/usage'
 
 let mainWindow: BrowserWindow | null = null
 const store = new Store()
 const git = new GitService()
-const pty = new PtyManager(() => mainWindow?.webContents ?? null)
+
+const bellDebounce = new Map<string, number>()
+
+/** Surface a native notification when a session needs attention or ends. */
+function notifyAttention(e: PtyNotifyEvent): void {
+  if (!Notification.isSupported()) return
+  // don't interrupt when the user is already looking at the app
+  if (mainWindow && mainWindow.isFocused()) return
+  const session = store.findSession(e.id)
+  if (!session) return
+
+  if (e.kind === 'bell') {
+    const now = Date.now()
+    if (now - (bellDebounce.get(e.id) ?? 0) < 5000) return
+    bellDebounce.set(e.id, now)
+  }
+
+  const title = e.kind === 'exit' ? 'Session ended' : 'Session needs attention'
+  const body = e.kind === 'exit' ? `${session.name} exited (code ${e.code})` : session.name
+  const n = new Notification({ title, body })
+  n.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+      mainWindow.webContents.send(IPC.sessionFocus, e.id)
+    }
+  })
+  n.show()
+}
+
+const pty = new PtyManager(() => mainWindow?.webContents ?? null, notifyAttention)
 
 function slugify(input: string): string {
   const base = input
@@ -77,6 +114,22 @@ function registerIpc(): void {
     }
   )
 
+  ipcMain.handle(IPC.agentsDiscoverAll, async () => {
+    const known = store.projects.map((p) => ({ id: p.id, path: p.path, isGit: p.isGit }))
+    return discoverAllSessions(known)
+  })
+
+  // Read a transcript for a machine-wide session, keyed by its real cwd rather
+  // than a stored project. For Claude the cwd reproduces the transcript dir; for
+  // Codex/Gemini the readers resolve by session id.
+  ipcMain.handle(
+    IPC.agentsTranscriptAt,
+    async (_e, agentId: string, cwd: string, sessionId: string) => {
+      if (sessionId.startsWith('live:')) return []
+      return readTranscript(agentId, cwd, sessionId)
+    }
+  )
+
   ipcMain.handle(IPC.projectsAdd, async () => {
     const res = await dialog.showOpenDialog(mainWindow!, {
       title: 'Add project',
@@ -86,6 +139,20 @@ function registerIpc(): void {
     const path = res.filePaths[0]
     if (store.projects.some((p) => p.path === path)) return snapshot()
 
+    const isGit = await git.isRepo(path)
+    const project: Project = {
+      id: randomUUID(),
+      name: basename(path),
+      path,
+      isGit,
+      createdAt: Date.now()
+    }
+    store.addProject(project)
+    return snapshot()
+  })
+
+  ipcMain.handle(IPC.projectsAddPath, async (_e, path: string) => {
+    if (store.projects.some((p) => p.path === path)) return snapshot()
     const isGit = await git.isRepo(path)
     const project: Project = {
       id: randomUUID(),
@@ -210,6 +277,64 @@ function registerIpc(): void {
     if (!session) return ''
     return git.readFileText(session.cwd, rel)
   })
+
+  ipcMain.handle(IPC.gitStage, (_e, sessionId: string, path: string) => {
+    const session = store.findSession(sessionId)
+    return session ? git.stage(session.cwd, path) : Promise.resolve()
+  })
+  ipcMain.handle(IPC.gitUnstage, (_e, sessionId: string, path: string) => {
+    const session = store.findSession(sessionId)
+    return session ? git.unstage(session.cwd, path) : Promise.resolve()
+  })
+  ipcMain.handle(IPC.gitStageAll, (_e, sessionId: string) => {
+    const session = store.findSession(sessionId)
+    return session ? git.stageAll(session.cwd) : Promise.resolve()
+  })
+  ipcMain.handle(IPC.gitCommit, async (_e, sessionId: string, message: string) => {
+    const session = store.findSession(sessionId)
+    if (!session) return { ok: false, error: 'Session not found' }
+    try {
+      const hash = await git.commit(session.cwd, message)
+      return { ok: true, hash }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC.gitWorktreeInfo, (_e, sessionId: string) => {
+    const session = store.findSession(sessionId)
+    if (!session || !session.worktreePath || !session.branch || !session.projectId) return null
+    const project = store.findProject(session.projectId)
+    if (!project) return null
+    return git.worktreeInfo(project.path, session.worktreePath, session.branch)
+  })
+
+  ipcMain.handle(IPC.gitMerge, async (_e, sessionId: string) => {
+    const session = store.findSession(sessionId)
+    if (!session || !session.branch || !session.projectId) {
+      return { ok: false, error: 'Session has no worktree branch to merge' }
+    }
+    const project = store.findProject(session.projectId)
+    if (!project) return { ok: false, error: 'Project not found' }
+    return git.mergeIntoBase(project.path, session.branch)
+  })
+
+  ipcMain.handle(IPC.gitOpenPr, async (_e, sessionId: string, title: string) => {
+    const session = store.findSession(sessionId)
+    if (!session || !session.worktreePath || !session.branch) {
+      return { ok: false, error: 'Session has no worktree branch for a PR' }
+    }
+    const res = await git.openPr(session.worktreePath, session.branch, title)
+    if (res.ok && res.url) shell.openExternal(res.url)
+    return res
+  })
+
+  ipcMain.handle(IPC.agentsUsage, (_e, agentId: string, cwd: string, sessionId: string) => {
+    if (sessionId.startsWith('live:')) return null
+    return readSessionUsage(agentId, cwd, sessionId)
+  })
+
+  ipcMain.handle(IPC.agentsUsageAll, () => readAllUsage())
 
   ipcMain.on(IPC.ptyInput, (_e, id: string, data: string) => pty.write(id, data))
   ipcMain.on(IPC.ptyResize, (_e, id: string, cols: number, rows: number) =>

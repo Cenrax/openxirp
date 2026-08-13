@@ -1,7 +1,100 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { DiffKind, FileNode, GitStatus, GitStatusFile, Session } from '@shared/types'
+import type { DiffKind, FileNode, GitStatus, GitStatusFile, Session, WorktreeInfo } from '@shared/types'
+import { useApp } from '../store'
 
 const REFRESH_MS = 4000
+const WT_REFRESH_MS = 6000
+
+/** Merge / open-PR / discard actions for a session's isolated worktree. */
+function LifecycleBar({ session }: { session: Session }): JSX.Element | null {
+  const removeSession = useApp((s) => s.removeSession)
+  const [info, setInfo] = useState<WorktreeInfo | null>(null)
+  const [busy, setBusy] = useState<'merge' | 'pr' | null>(null)
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  const load = useCallback(async () => {
+    setInfo(await window.api.gitWorktreeInfo(session.id))
+  }, [session.id])
+
+  useEffect(() => {
+    void load()
+    const t = setInterval(load, WT_REFRESH_MS)
+    return () => clearInterval(t)
+  }, [load])
+
+  if (!session.worktreePath || !session.branch) return null
+
+  const merge = async (): Promise<void> => {
+    setBusy('merge')
+    setMsg(null)
+    const r = await window.api.gitMerge(session.id)
+    setBusy(null)
+    setMsg(r.ok ? { kind: 'ok', text: r.summary || 'Merged' } : { kind: 'err', text: r.error || 'Merge failed' })
+    await load()
+  }
+
+  const openPr = async (): Promise<void> => {
+    setBusy('pr')
+    setMsg(null)
+    const r = await window.api.gitOpenPr(session.id, session.name)
+    setBusy(null)
+    setMsg(r.ok ? { kind: 'ok', text: 'Pull request opened in your browser' } : { kind: 'err', text: r.error || 'Could not open PR' })
+  }
+
+  const discard = async (): Promise<void> => {
+    const ok = window.confirm(
+      `Discard this worktree and delete branch ${session.branch}? Uncommitted changes are lost.`
+    )
+    if (ok) await removeSession(session.id)
+  }
+
+  const canMerge = !!info && info.commits > 0 && info.uncommitted === 0
+  const canPr = !!info && info.hasRemote && info.gh && info.commits > 0
+
+  const prTitle = !info
+    ? ''
+    : !info.gh
+      ? 'gh CLI not found on PATH'
+      : !info.hasRemote
+        ? 'No git remote configured'
+        : info.commits === 0
+          ? 'No commits to open a PR for'
+          : 'Push branch and open a pull request'
+
+  return (
+    <div className="wt-bar">
+      <div className="wt-bar__row">
+        <button
+          className="btn"
+          disabled={!canMerge || busy !== null}
+          onClick={() => void merge()}
+          title={
+            info?.uncommitted ? 'Commit the worktree first' : `Merge ${session.branch} into ${info?.base ?? 'base'}`
+          }
+        >
+          {busy === 'merge' ? 'Merging…' : `Merge to ${info?.base ?? 'base'}`}
+        </button>
+        <button className="btn" disabled={!canPr || busy !== null} onClick={() => void openPr()} title={prTitle}>
+          {busy === 'pr' ? 'Opening…' : 'Open PR'}
+        </button>
+        <div className="wt-bar__spacer" />
+        <button className="btn btn--ghost wt-bar__discard" onClick={() => void discard()} title="Remove worktree and branch">
+          Discard
+        </button>
+      </div>
+      {info && (
+        <div className="wt-bar__hint">
+          {info.commits > 0
+            ? `${info.commits} commit${info.commits === 1 ? '' : 's'} ahead of ${info.base}`
+            : `Nothing to merge yet · base ${info.base}`}
+          {info.uncommitted > 0 ? ` · ${info.uncommitted} uncommitted` : ''}
+          {!info.gh ? ' · gh not found' : !info.hasRemote ? ' · no remote' : ''}
+        </div>
+      )}
+      {msg && <div className={`wt-bar__msg ${msg.kind === 'err' ? 'is-err' : 'is-ok'}`}>{msg.text}</div>}
+    </div>
+  )
+}
 
 function letter(code: string): string {
   const c = code.trim()
@@ -34,19 +127,34 @@ function FileRow({
   file,
   kind,
   active,
-  onSelect
+  onSelect,
+  onAct
 }: {
   file: GitStatusFile
   kind: DiffKind
   active: boolean
   onSelect: () => void
+  onAct: () => void
 }): JSX.Element {
   const code = kind === 'staged' ? file.index : file.working
+  const staged = kind === 'staged'
   return (
-    <button className={`git-file ${active ? 'is-active' : ''}`} onClick={onSelect}>
-      <span className={`git-file__code code-${letter(code)}`}>{letter(code)}</span>
-      <span className="git-file__path">{file.path}</span>
-    </button>
+    <div className={`git-file ${active ? 'is-active' : ''}`}>
+      <button className="git-file__main" onClick={onSelect}>
+        <span className={`git-file__code code-${letter(code)}`}>{letter(code)}</span>
+        <span className="git-file__path">{file.path}</span>
+      </button>
+      <button
+        className="git-file__act"
+        title={staged ? 'Unstage' : 'Stage'}
+        onClick={(e) => {
+          e.stopPropagation()
+          onAct()
+        }}
+      >
+        {staged ? '−' : '+'}
+      </button>
+    </div>
   )
 }
 
@@ -104,6 +212,9 @@ export function GitPanel({ session }: { session: Session }): JSX.Element {
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [sel, setSel] = useState<{ path: string; kind: DiffKind } | null>(null)
   const [diff, setDiff] = useState('')
+  const [message, setMessage] = useState('')
+  const [committing, setCommitting] = useState(false)
+  const [commitError, setCommitError] = useState('')
   const selRef = useRef(sel)
   selRef.current = sel
 
@@ -111,6 +222,28 @@ export function GitPanel({ session }: { session: Session }): JSX.Element {
     const s = await window.api.gitStatus(session.id)
     setStatus(s)
   }, [session.id])
+
+  const act = useCallback(
+    async (fn: () => Promise<unknown>) => {
+      await fn()
+      await refresh()
+    },
+    [refresh]
+  )
+
+  const commit = useCallback(async () => {
+    if (!message.trim()) return
+    setCommitting(true)
+    setCommitError('')
+    const res = await window.api.gitCommit(session.id, message.trim())
+    setCommitting(false)
+    if (res.ok) {
+      setMessage('')
+      await refresh()
+    } else {
+      setCommitError(res.error || 'Commit failed')
+    }
+  }, [message, session.id, refresh])
 
   useEffect(() => {
     setSel(null)
@@ -158,6 +291,13 @@ export function GitPanel({ session }: { session: Session }): JSX.Element {
             kind={kind}
             active={sel?.path === f.path && sel?.kind === kind}
             onSelect={() => setSel({ path: f.path, kind })}
+            onAct={() =>
+              void act(() =>
+                kind === 'staged'
+                  ? window.api.gitUnstage(session.id, f.path)
+                  : window.api.gitStage(session.id, f.path)
+              )
+            }
           />
         ))}
       </div>
@@ -191,6 +331,14 @@ export function GitPanel({ session }: { session: Session }): JSX.Element {
         <div className="gitpanel__body">
           <div className="git-files">
             {status?.clean && <div className="git-empty">Working tree clean.</div>}
+            {(changed.length > 0 || untracked.length > 0) && (
+              <button
+                className="git-stageall"
+                onClick={() => void act(() => window.api.gitStageAll(session.id))}
+              >
+                + Stage all
+              </button>
+            )}
             {group('Staged', staged, 'staged')}
             {group('Changed', changed, 'unstaged')}
             {group('Untracked', untracked, 'untracked')}
@@ -198,6 +346,28 @@ export function GitPanel({ session }: { session: Session }): JSX.Element {
           <div className="git-diff-wrap">
             {sel ? <DiffView text={diff} /> : <div className="git-empty">Select a file to view its diff.</div>}
           </div>
+          <div className="git-commit">
+            <textarea
+              className="git-commit__msg"
+              placeholder={staged.length ? 'Commit message' : 'Stage files to commit'}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') void commit()
+              }}
+              rows={2}
+              disabled={staged.length === 0}
+            />
+            {commitError && <div className="git-commit__err">{commitError}</div>}
+            <button
+              className="btn btn--accent git-commit__btn"
+              disabled={staged.length === 0 || !message.trim() || committing}
+              onClick={() => void commit()}
+            >
+              {committing ? 'Committing…' : `Commit ${staged.length || ''}`.trim()}
+            </button>
+          </div>
+          <LifecycleBar session={session} />
         </div>
       ) : (
         <div className="gitpanel__body">

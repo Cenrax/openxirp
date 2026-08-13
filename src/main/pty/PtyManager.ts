@@ -27,10 +27,17 @@ function defaultShell(): { shell: string; args: string[] } {
  * terminal keeps running when its tab is not mounted, and its output is
  * buffered for replay on reopen.
  */
+export type PtyNotifyEvent =
+  | { kind: 'bell'; id: string }
+  | { kind: 'exit'; id: string; code: number }
+
 export class PtyManager {
   private terms = new Map<string, Term>()
 
-  constructor(private sender: () => WebContents | null) {}
+  constructor(
+    private sender: () => WebContents | null,
+    private notify?: (e: PtyNotifyEvent) => void
+  ) {}
 
   private push(channel: string, payload: unknown): void {
     const wc = this.sender()
@@ -65,11 +72,14 @@ export class PtyManager {
     proc.onData((data) => {
       term.backlog = (term.backlog + data).slice(-BACKLOG_LIMIT)
       this.push(IPC.ptyData, { id, data })
+      // a terminal bell (BEL) is the agent/CLI asking for attention
+      if (data.includes('\x07')) this.notify?.({ kind: 'bell', id })
     })
 
     proc.onExit(({ exitCode }) => {
       term.alive = false
       this.push(IPC.ptyExit, { id, exitCode })
+      this.notify?.({ kind: 'exit', id, code: exitCode })
     })
 
     // Run an agent (or any bootstrap command) inside the live shell so its

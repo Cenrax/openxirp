@@ -1,5 +1,6 @@
 import { useApp } from '../store'
 import { Markdown, stripMarkdown } from './Markdown'
+import { SessionUsageChip } from './Usage'
 import type { AgentSessionRef, TranscriptMessage } from '@shared/types'
 
 function relativeTime(ms: number): string {
@@ -89,6 +90,7 @@ function TranscriptView(): JSX.Element {
           </div>
         </div>
         <div className="workbar__spacer" />
+        <SessionUsageChip agentId={detail.agentId} cwd={detail.cwd} sessionId={detail.sessionId} />
         {detail.resumable && (
           <button className="btn btn--accent" onClick={() => void resumeSession(detail)}>
             Resume

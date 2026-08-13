@@ -7,12 +7,18 @@ import type {
   DiffKind,
   FileNode,
   GitStatus,
+  MachineProjectGroup,
+  MergeResult,
+  PrResult,
   Project,
   PtyDataEvent,
   PtyExitEvent,
   PtyStartResult,
   Session,
-  TranscriptMessage
+  SessionUsage,
+  TranscriptMessage,
+  UsageReport,
+  WorktreeInfo
 } from '../shared/types'
 
 type Snapshot = { projects: Project[]; sessions: Session[] }
@@ -23,14 +29,24 @@ const api = {
   listAgents: (): Promise<AgentInfo[]> => ipcRenderer.invoke(IPC.agentsList),
   discoverSessions: (projectId: string): Promise<AgentSessionRef[]> =>
     ipcRenderer.invoke(IPC.agentsDiscover, projectId),
+  discoverAllSessions: (): Promise<MachineProjectGroup[]> =>
+    ipcRenderer.invoke(IPC.agentsDiscoverAll),
   readTranscript: (
     agentId: string,
     projectId: string,
     sessionId: string
   ): Promise<TranscriptMessage[]> =>
     ipcRenderer.invoke(IPC.agentsTranscript, agentId, projectId, sessionId),
+  readTranscriptAt: (
+    agentId: string,
+    cwd: string,
+    sessionId: string
+  ): Promise<TranscriptMessage[]> =>
+    ipcRenderer.invoke(IPC.agentsTranscriptAt, agentId, cwd, sessionId),
 
   addProject: (): Promise<Snapshot> => ipcRenderer.invoke(IPC.projectsAdd),
+  addProjectPath: (path: string): Promise<Snapshot> =>
+    ipcRenderer.invoke(IPC.projectsAddPath, path),
   removeProject: (id: string): Promise<Snapshot> => ipcRenderer.invoke(IPC.projectsRemove, id),
 
   createSession: (input: CreateSessionInput): Promise<Snapshot> =>
@@ -45,8 +61,24 @@ const api = {
     ipcRenderer.invoke(IPC.gitDiff, sessionId, path, kind),
   gitListDir: (sessionId: string, rel: string): Promise<FileNode[]> =>
     ipcRenderer.invoke(IPC.gitListDir, sessionId, rel),
+  gitStage: (sessionId: string, path: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.gitStage, sessionId, path),
+  gitUnstage: (sessionId: string, path: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.gitUnstage, sessionId, path),
+  gitStageAll: (sessionId: string): Promise<void> => ipcRenderer.invoke(IPC.gitStageAll, sessionId),
+  gitCommit: (sessionId: string, message: string): Promise<{ ok: boolean; hash?: string; error?: string }> =>
+    ipcRenderer.invoke(IPC.gitCommit, sessionId, message),
+  gitWorktreeInfo: (sessionId: string): Promise<WorktreeInfo | null> =>
+    ipcRenderer.invoke(IPC.gitWorktreeInfo, sessionId),
+  gitMerge: (sessionId: string): Promise<MergeResult> => ipcRenderer.invoke(IPC.gitMerge, sessionId),
+  gitOpenPr: (sessionId: string, title: string): Promise<PrResult> =>
+    ipcRenderer.invoke(IPC.gitOpenPr, sessionId, title),
   fileRead: (sessionId: string, rel: string): Promise<string> =>
     ipcRenderer.invoke(IPC.fileRead, sessionId, rel),
+
+  sessionUsage: (agentId: string, cwd: string, sessionId: string): Promise<SessionUsage | null> =>
+    ipcRenderer.invoke(IPC.agentsUsage, agentId, cwd, sessionId),
+  usageAll: (): Promise<UsageReport> => ipcRenderer.invoke(IPC.agentsUsageAll),
 
   ptyStart: (id: string): Promise<PtyStartResult> => ipcRenderer.invoke(IPC.ptyStart, id),
   ptyInput: (id: string, data: string): void => ipcRenderer.send(IPC.ptyInput, id, data),
@@ -63,6 +95,11 @@ const api = {
     const handler = (_: unknown, payload: PtyExitEvent): void => cb(payload)
     ipcRenderer.on(IPC.ptyExit, handler)
     return () => ipcRenderer.removeListener(IPC.ptyExit, handler)
+  },
+  onSessionFocus: (cb: (id: string) => void): (() => void) => {
+    const handler = (_: unknown, id: string): void => cb(id)
+    ipcRenderer.on(IPC.sessionFocus, handler)
+    return () => ipcRenderer.removeListener(IPC.sessionFocus, handler)
   }
 }
 

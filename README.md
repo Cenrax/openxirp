@@ -58,6 +58,24 @@ Each agent stays authenticated and configured through its own native CLI.
 - **Changes panel** — a per-session git drawer showing branch and ahead/behind,
   staged / changed / untracked files, and a click-to-view unified diff, plus a
   Files tree for browsing the working tree. Refreshes as the agent works.
+- **Light and dark themes** — the same editorial design in warm paper or warm
+  near-black, including the terminals. Toggle in the top bar; the choice persists.
+- **Commit from the app** — stage, unstage, stage-all, and commit staged files
+  straight from the Changes panel.
+- **Worktree lifecycle** — when a session's work is committed, merge its branch
+  back into the base branch, open a pull request with the `gh` CLI, or discard
+  the worktree and branch, all from the Changes panel.
+- **Token and cost estimates** — per-session token counts with an estimated
+  cost (read from transcripts), plus a machine-wide per-project cost rollup in
+  the command center.
+- **Command center** — one view of every coding-agent session on your machine,
+  grouped by project folder, whether or not the folder is added to openxirp. It
+  merges on-disk transcripts (Claude Code, Codex, Gemini) with a live scan of
+  running agent processes, marks which sessions are active right now, and lets
+  you resume any of them or add its folder as a project in one click.
+- **Command palette** — Cmd/Ctrl + K to jump to any project, session, or action.
+- **Desktop notifications** — get pinged when a session rings the terminal bell
+  for attention or its process exits, while the window is in the background.
 - **Cross-platform** — builds for macOS (`.dmg`, arm64 + x64) and Windows
   (NSIS installer) via GitHub Actions.
 
@@ -142,7 +160,13 @@ Electron main (Node)                    Renderer (React + Vite)
 ## Roadmap
 
 - [x] Git diff panel and file tree per session
-- [ ] Stage / unstage / commit from the changes panel
+- [x] Stage / unstage / commit from the changes panel
+- [x] Command palette (Cmd/Ctrl + K)
+- [x] Desktop notifications when a session needs attention or ends
+- [x] Machine-wide command center for every agent session
+- [x] Merge / open a PR / discard a session's worktree
+- [x] Token / cost estimation per session and per project
+- [ ] Run one task across several agents in parallel worktrees
 - [ ] Rules and skills manager for agents
 - [ ] External context integrations
 - [ ] Linux builds

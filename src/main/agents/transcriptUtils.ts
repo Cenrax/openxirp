@@ -45,3 +45,33 @@ export async function forEachJsonl(
     rl.close()
   }
 }
+
+/**
+ * Like forEachJsonl but stops after `maxLines` parsed lines. Used by the
+ * machine-wide scan, which reads only enough of each transcript to learn its
+ * cwd and first prompt rather than parsing every transcript on disk in full.
+ */
+export async function forEachJsonlHead(
+  file: string,
+  maxLines: number,
+  onLine: (obj: Record<string, unknown>) => void
+): Promise<void> {
+  const stream = createReadStream(file, { encoding: 'utf-8' })
+  const rl = createInterface({ input: stream, crlfDelay: Infinity })
+  let seen = 0
+  try {
+    for await (const line of rl) {
+      if (!line) continue
+      try {
+        onLine(JSON.parse(line))
+        seen += 1
+      } catch {
+        /* skip malformed line */
+      }
+      if (seen >= maxLines) break
+    }
+  } finally {
+    rl.close()
+    stream.destroy()
+  }
+}

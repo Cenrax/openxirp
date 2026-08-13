@@ -3,10 +3,19 @@ import { useApp } from './store'
 import { Sidebar } from './components/Sidebar'
 import { Workspace } from './components/Workspace'
 import { HistoryPanel } from './components/HistoryPanel'
+import { CommandCenter } from './components/CommandCenter'
 import { NewSessionDialog } from './components/NewSessionDialog'
+import { CommandPalette } from './components/CommandPalette'
+
+const IS_MAC = navigator.platform.toLowerCase().includes('mac')
 
 function TopBar(): JSX.Element {
   const sessions = useApp((s) => s.sessions)
+  const theme = useApp((s) => s.theme)
+  const view = useApp((s) => s.view)
+  const toggleTheme = useApp((s) => s.toggleTheme)
+  const setPalette = useApp((s) => s.setPalette)
+  const openCommandCenter = useApp((s) => s.openCommandCenter)
   const running = sessions.filter((s) => s.status === 'running').length
   return (
     <header className="topbar">
@@ -17,9 +26,31 @@ function TopBar(): JSX.Element {
         <span className="topbar__tag">beta</span>
       </div>
       <div className="topbar__spacer" />
+      <button
+        className={`btn btn--ghost topbar__nav${view === 'machine' ? ' is-on' : ''}`}
+        onClick={() => void openCommandCenter()}
+        title="See every agent session running on this machine"
+      >
+        Command center
+      </button>
       <span className="topbar__meta">
         {sessions.length} session{sessions.length === 1 ? '' : 's'} · {running} running
       </span>
+      <button
+        className="topbar__kbd"
+        onClick={() => setPalette(true)}
+        title="Command palette"
+      >
+        {IS_MAC ? '⌘K' : 'Ctrl K'}
+      </button>
+      <button
+        className="btn btn--ghost btn--icon topbar__theme"
+        onClick={toggleTheme}
+        title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        aria-label="Toggle color theme"
+      >
+        {theme === 'dark' ? '☀' : '☾'}
+      </button>
     </header>
   )
 }
@@ -69,6 +100,23 @@ export default function App(): JSX.Element {
     void init()
   }, [init])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        const st = useApp.getState()
+        st.setPalette(!st.paletteOpen)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    // clicking a native notification focuses that session
+    return window.api.onSessionFocus((id) => useApp.getState().openSession(id))
+  }, [])
+
   return (
     <div className="app">
       <TopBar />
@@ -76,6 +124,8 @@ export default function App(): JSX.Element {
       <main className="main">
         {view === 'history' ? (
           <HistoryPanel />
+        ) : view === 'machine' ? (
+          <CommandCenter />
         ) : (
           <>
             <WorkBar />
@@ -84,6 +134,7 @@ export default function App(): JSX.Element {
         )}
       </main>
       <NewSessionDialog />
+      <CommandPalette />
     </div>
   )
 }

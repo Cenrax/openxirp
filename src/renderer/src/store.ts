@@ -3,13 +3,34 @@ import type {
   AgentInfo,
   AgentSessionRef,
   CreateSessionInput,
+  MachineProjectGroup,
+  MachineSession,
   Project,
   Session,
-  TranscriptMessage
+  TranscriptMessage,
+  UsageReport
 } from '@shared/types'
 
 type Layout = 'tabs' | 'grid'
-type View = 'workspace' | 'history'
+type View = 'workspace' | 'history' | 'machine'
+type Theme = 'light' | 'dark'
+
+function readTheme(): Theme {
+  try {
+    return localStorage.getItem('openxirp:theme') === 'dark' ? 'dark' : 'light'
+  } catch {
+    return 'light'
+  }
+}
+
+export function applyTheme(theme: Theme): void {
+  document.documentElement.setAttribute('data-theme', theme)
+  try {
+    localStorage.setItem('openxirp:theme', theme)
+  } catch {
+    /* ignore storage errors */
+  }
+}
 
 interface AppState {
   projects: Project[]
@@ -20,14 +41,21 @@ interface AppState {
   layout: Layout
   dialogProjectId: string | null | undefined // undefined = closed
 
+  theme: Theme
   view: View
   panelOpen: boolean
+  paletteOpen: boolean
   historyProjectId: string | null
   history: AgentSessionRef[]
   historyLoading: boolean
   detail: AgentSessionRef | null
   transcript: TranscriptMessage[]
   transcriptLoading: boolean
+
+  machineGroups: MachineProjectGroup[]
+  machineLoading: boolean
+  costs: UsageReport | null
+  costsLoading: boolean
 
   init: () => Promise<void>
   applySnapshot: (snap: { projects: Project[]; sessions: Session[] }) => void
@@ -39,7 +67,9 @@ interface AppState {
   closeTab: (id: string) => void
   setActive: (id: string) => void
   setLayout: (l: Layout) => void
+  toggleTheme: () => void
   togglePanel: () => void
+  setPalette: (open: boolean) => void
   openDialog: (projectId: string | null) => void
   closeDialog: () => void
 
@@ -48,6 +78,14 @@ interface AppState {
   resumeSession: (ref: AgentSessionRef) => Promise<void>
   openTranscript: (ref: AgentSessionRef) => Promise<void>
   closeTranscript: () => void
+
+  openCommandCenter: () => Promise<void>
+  refreshMachine: () => Promise<void>
+  closeCommandCenter: () => void
+  openMachineTranscript: (ref: MachineSession) => Promise<void>
+  resumeMachineSession: (ref: MachineSession, group: MachineProjectGroup) => Promise<void>
+  addGroupProject: (group: MachineProjectGroup) => Promise<void>
+  loadCosts: () => Promise<void>
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -59,14 +97,21 @@ export const useApp = create<AppState>((set, get) => ({
   layout: 'tabs',
   dialogProjectId: undefined,
 
+  theme: readTheme(),
   view: 'workspace',
   panelOpen: false,
+  paletteOpen: false,
   historyProjectId: null,
   history: [],
   historyLoading: false,
   detail: null,
   transcript: [],
   transcriptLoading: false,
+
+  machineGroups: [],
+  machineLoading: false,
+  costs: null,
+  costsLoading: false,
 
   init: async () => {
     const [projects, sessions, agents] = await Promise.all([
@@ -135,7 +180,13 @@ export const useApp = create<AppState>((set, get) => ({
 
   setActive: (id) => set({ activeId: id }),
   setLayout: (layout) => set({ layout }),
+  toggleTheme: () => {
+    const theme: Theme = get().theme === 'dark' ? 'light' : 'dark'
+    applyTheme(theme)
+    set({ theme })
+  },
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
+  setPalette: (paletteOpen) => set({ paletteOpen }),
   openDialog: (projectId) => set({ dialogProjectId: projectId }),
   closeDialog: () => set({ dialogProjectId: undefined }),
 
@@ -183,5 +234,71 @@ export const useApp = create<AppState>((set, get) => ({
       agentId: ref.agentId,
       resumeId: ref.sessionId
     })
+  },
+
+  openCommandCenter: async () => {
+    set({ view: 'machine', detail: null, transcript: [] })
+    await get().refreshMachine()
+  },
+
+  refreshMachine: async () => {
+    set({ machineLoading: true })
+    try {
+      const machineGroups = await window.api.discoverAllSessions()
+      set({ machineGroups, machineLoading: false })
+    } catch {
+      set({ machineGroups: [], machineLoading: false })
+    }
+  },
+
+  closeCommandCenter: () => set({ view: 'workspace', detail: null, transcript: [] }),
+
+  openMachineTranscript: async (ref) => {
+    if (!ref.resumable) return
+    set({ detail: ref, transcript: [], transcriptLoading: true })
+    try {
+      const transcript = await window.api.readTranscriptAt(ref.agentId, ref.cwd, ref.sessionId)
+      if (get().detail?.sessionId === ref.sessionId) set({ transcript, transcriptLoading: false })
+    } catch {
+      if (get().detail?.sessionId === ref.sessionId)
+        set({ transcript: [], transcriptLoading: false })
+    }
+  },
+
+  resumeMachineSession: async (ref, group) => {
+    if (ref.resumable) {
+      // Resume in the original checkout (a resumeId skips worktree creation).
+      await get().createSession({
+        projectId: group.addedProjectId,
+        name: ref.title,
+        agentId: ref.agentId,
+        cwd: group.path,
+        resumeId: ref.sessionId
+      })
+    } else {
+      // A bare running process: open a plain terminal in its folder, no worktree.
+      await get().createSession({
+        projectId: null,
+        name: `${group.name} terminal`,
+        agentId: 'plain',
+        cwd: group.path
+      })
+    }
+  },
+
+  addGroupProject: async (group) => {
+    if (group.addedProjectId) return
+    get().applySnapshot(await window.api.addProjectPath(group.path))
+    await get().refreshMachine()
+  },
+
+  loadCosts: async () => {
+    set({ costsLoading: true })
+    try {
+      const costs = await window.api.usageAll()
+      set({ costs, costsLoading: false })
+    } catch {
+      set({ costs: null, costsLoading: false })
+    }
   }
 }))
