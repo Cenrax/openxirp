@@ -23,6 +23,10 @@ const BACKLOG_LIMIT = 200_000 // characters
  *  between tool calls, so the window is generous to avoid flapping to idle. */
 const WORKING_QUIET_MS = 2500
 
+// Spinner/status hints are useful across short gaps between output chunks, but
+// they must eventually expire because the matched text remains in scrollback.
+const WORKING_HINT_MS = 15_000
+
 // Control sequences (CSI + OSC) stripped before pattern-matching the tail.
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07\x1B]*(?:\x07|\x1B\\))/g
@@ -62,7 +66,8 @@ export function classifyTail(
     .slice(-24)
     .join('\n')
 
-  const working = quietMs < WORKING_QUIET_MS || WORKING_RE.test(tail)
+  const working =
+    quietMs < WORKING_QUIET_MS || (quietMs < WORKING_HINT_MS && WORKING_RE.test(tail))
   if (!working) {
     const recentBell = bellAgoMs < 12_000
     if (recentBell || BLOCKED_RES.some((re) => re.test(tail))) return 'blocked'
