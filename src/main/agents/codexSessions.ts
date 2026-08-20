@@ -141,28 +141,34 @@ export async function discoverCodexSessions(projectPath: string): Promise<AgentS
     .sort((a, b) => b.lastActive - a.lastActive)
 }
 
+export async function findCodexTranscriptFile(
+  projectPath: string,
+  sessionId: string,
+  files?: string[]
+): Promise<string | null> {
+  const candidates = files ?? (await listJsonl(sessionsRoot()))
+
+  // Prefer the filename fast path, but still verify the transcript's recorded
+  // cwd because session IDs are not scoped to a project.
+  for (const file of candidates) {
+    if (file.match(UUID_RE)?.[0] !== sessionId) continue
+    const head = await parseHead(file).catch(() => null)
+    if (head && cwdMatches(head.cwd, projectPath)) return file
+  }
+
+  // Older rollout filenames may not contain the session ID.
+  for (const file of candidates) {
+    const head = await parseHead(file).catch(() => null)
+    if (head?.id === sessionId && cwdMatches(head.cwd, projectPath)) return file
+  }
+  return null
+}
+
 export async function readCodexTranscript(
   projectPath: string,
   sessionId: string
 ): Promise<TranscriptMessage[]> {
-  // Find the rollout file whose id (meta or filename) matches.
-  const files = await listJsonl(sessionsRoot())
-  let target: string | null = null
-  for (const f of files) {
-    if (f.includes(sessionId)) {
-      target = f
-      break
-    }
-  }
-  if (!target) {
-    for (const f of files) {
-      const head = await parseHead(f).catch(() => null)
-      if (head?.id === sessionId && cwdMatches(head.cwd, projectPath)) {
-        target = f
-        break
-      }
-    }
-  }
+  const target = await findCodexTranscriptFile(projectPath, sessionId)
   if (!target) return []
 
   const out: TranscriptMessage[] = []

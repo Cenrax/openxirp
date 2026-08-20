@@ -106,28 +106,31 @@ export async function discoverClaudeSessions(projectPath: string): Promise<Agent
  */
 export async function findClaudeTranscriptFile(
   cwd: string,
-  sessionId: string
+  sessionId: string,
+  projectsRoot = join(homedir(), '.claude', 'projects')
 ): Promise<string | null> {
-  const primary = join(projectDir(cwd), `${sessionId}.jsonl`)
+  const matchesProject = async (file: string): Promise<boolean> => {
+    const parsed = await parseHead(file)
+    return cwdMatches(parsed.cwd, cwd)
+  }
+
+  const primary = join(projectsRoot, encodeProjectDir(cwd), `${sessionId}.jsonl`)
   try {
-    await stat(primary)
-    return primary
+    if (await matchesProject(primary)) return primary
   } catch {
     /* fall back to a search */
   }
-  const root = join(homedir(), '.claude', 'projects')
   let dirs: string[]
   try {
-    dirs = await readdir(root)
+    dirs = await readdir(projectsRoot)
   } catch {
     return null
   }
   const hits = await Promise.all(
     dirs.map(async (d) => {
-      const p = join(root, d, `${sessionId}.jsonl`)
+      const p = join(projectsRoot, d, `${sessionId}.jsonl`)
       try {
-        await stat(p)
-        return p
+        return (await matchesProject(p)) ? p : null
       } catch {
         return null
       }
